@@ -62,6 +62,26 @@
     </header>
 
     <main class="flex-1 px-4 py-4">
+      <ClientOnly>
+        <div
+          v-if="debugVisible"
+          class="mb-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs shadow-sm dark:border-slate-800 dark:bg-slate-950"
+        >
+          <div class="font-semibold">Auth debug</div>
+          <div class="mt-1 grid gap-0.5 text-slate-700 dark:text-slate-200">
+            <div><span class="text-slate-500">hydrated:</span> {{ String(auth.hydrated) }}</div>
+            <div><span class="text-slate-500">status:</span> {{ auth.status }}</div>
+            <div><span class="text-slate-500">user.id:</span> {{ auth.user?.id || '—' }}</div>
+            <div><span class="text-slate-500">user.email:</span> {{ auth.user?.email || '—' }}</div>
+            <div><span class="text-slate-500">profile.name:</span> {{ auth.profile?.name ?? 'null' }}</div>
+            <div><span class="text-slate-500">profile.id:</span> {{ auth.profile?.id ?? 'null' }}</div>
+            <div><span class="text-slate-500">needsProfileSetup:</span> {{ String(auth.needsProfileSetup) }}</div>
+            <div v-if="auth.lastError" class="text-rose-600 dark:text-rose-400">
+              <span class="text-slate-500">lastError:</span> {{ auth.lastError }}
+            </div>
+          </div>
+        </div>
+      </ClientOnly>
       <slot />
     </main>
 
@@ -78,9 +98,20 @@ import { useAuthStore } from '~/stores/auth'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const route = useRoute()
 
 const menuOpen = ref(false)
-const displayName = computed(() => auth.profile?.name || auth.user?.email || 'Account')
+const displayName = computed(() => {
+  const name = auth.profile?.name?.trim()
+  if (name) return name
+  const email = auth.user?.email || ''
+  // Fall back to the email's local-part so the user sees "zihad" rather
+  // than "zihad@gmail.com" before/while their profile is loading.
+  if (email) return email.split('@')[0] || email
+  return 'Account'
+})
+
+const debugVisible = computed(() => route.query.debug === '1')
 
 function goProfile() {
   menuOpen.value = false

@@ -56,14 +56,38 @@ export const useAuthStore = defineStore('auth', {
       }
 
       try {
-        const { data: profileRow } = await supabase
+        const { data: profileRow, error: profileError } = await supabase
           .from('profiles')
           .select('id,name,username,birthday,gender,phone,address')
           .eq('id', this.user.id)
           .maybeSingle()
-        this.profile = (profileRow as any) || null
-      } catch {
+
+        if (import.meta.dev) {
+          // Visible diagnostic: shows up in browser DevTools so we can see
+          // what's coming back from the profiles SELECT after a refresh.
+          // Remove once cross-device profile sync is fully verified.
+          // eslint-disable-next-line no-console
+          console.info('[auth.setSession] profile fetch', {
+            userId: this.user.id,
+            email: this.user.email,
+            profileError: profileError?.message,
+            profileRow
+          })
+        }
+
+        if (profileError) {
+          this.profile = null
+          this.lastError = profileError.message
+        } else {
+          this.profile = (profileRow as any) || null
+        }
+      } catch (e: any) {
+        if (import.meta.dev) {
+          // eslint-disable-next-line no-console
+          console.warn('[auth.setSession] profile fetch threw', e)
+        }
         this.profile = null
+        this.lastError = e?.message || 'Profile fetch failed'
       }
 
       this.status = 'authenticated'

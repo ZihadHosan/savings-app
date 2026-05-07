@@ -111,7 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue'
+import { computed, onMounted, ref, watchEffect } from 'vue'
 import { useI18n } from '~/composables/useI18n'
 import { useAuthStore } from '~/stores/auth'
 
@@ -121,22 +121,26 @@ const route = useRoute()
 
 const supabase = computed(() => useNuxtApp().$supabase)
 
-const name = ref(auth.profile?.name || '')
-const username = ref(auth.profile?.username || '')
-const birthday = ref(auth.profile?.birthday || '')
-const gender = ref(auth.profile?.gender || '')
-const phone = ref(auth.profile?.phone || '')
-const address = ref(auth.profile?.address || '')
+const name = ref('')
+const username = ref('')
+const birthday = ref('')
+const gender = ref('')
+const phone = ref('')
+const address = ref('')
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
 
 const canSave = computed(() => !!name.value.trim())
 
-// Sync form fields whenever the profile loads/updates (auth hydration can arrive after mount).
+// One-shot sync: pre-fill the form from cloud data (auth.profile) the first
+// time it becomes available. We re-arm `profileSynced=false` whenever we
+// want to re-pull from cloud (mount, post-save) so the form always mirrors
+// the server, not a cached local copy.
 let profileSynced = false
-watchEffect(() => {
-  if (!auth.profile || profileSynced) return
+
+function syncFormFromCloud() {
+  if (!auth.profile) return
   profileSynced = true
   name.value = auth.profile.name || ''
   username.value = auth.profile.username || ''
@@ -144,6 +148,24 @@ watchEffect(() => {
   gender.value = auth.profile.gender || ''
   phone.value = auth.profile.phone || ''
   address.value = auth.profile.address || ''
+}
+
+watchEffect(() => {
+  if (!auth.profile || profileSynced) return
+  syncFormFromCloud()
+})
+
+// Always pull the latest cloud profile when this page opens, so the form
+// shows the freshest server data — not any stale in-memory copy from a
+// previous page visit.
+onMounted(async () => {
+  if (!auth.user) return
+  profileSynced = false
+  try {
+    await auth.refresh()
+  } catch {
+    // surfaced via auth.lastError; form stays editable
+  }
 })
 
 watchEffect(() => {
@@ -202,11 +224,19 @@ async function save() {
       )
     }
 
+    // Re-arm the sync flag so the next auth.profile change re-pre-fills the
+    // form with whatever the server actually returned (server defaults, etc.).
+    profileSynced = false
+
     // Update the in-memory profile so the header/forms reflect it instantly.
     auth.profile = row as any
 
     // Re-pull the full session/profile so everything downstream is consistent.
     await auth.refresh()
+
+    // Final form sync from the cloud copy after refresh, in case auth.refresh
+    // didn't change the object reference (Vue would skip the watchEffect).
+    syncFormFromCloud()
 
     notice.value = t('profile.saved')
   } catch (e: any) {

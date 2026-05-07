@@ -38,19 +38,6 @@
             <option value="dark">{{ t('settings.dark') }}</option>
           </select>
         </label>
-
-        <label class="grid gap-1">
-          <span class="text-sm font-medium">{{ t('settings.language') }}</span>
-          <select
-            :value="settings.locale"
-            class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950"
-            @change="onLocaleChange"
-          >
-            <option value="en">English</option>
-            <option value="bn">বাংলা</option>
-            <option value="is">Íslenska</option>
-          </select>
-        </label>
       </div>
     </section>
 
@@ -131,7 +118,6 @@ import { useSettingsStore } from '~/stores/settings'
 import { useChallengeStore } from '~/stores/challenge'
 import { useSyncStore } from '~/stores/sync'
 import { useAuthStore } from '~/stores/auth'
-import type { AppSettings } from '~/types/challenge'
 import { useI18n } from '~/composables/useI18n'
 
 const settings = useSettingsStore()
@@ -186,12 +172,6 @@ function onThemeChange(e: Event) {
   const el = e.target as HTMLSelectElement | null
   if (!el) return
   settings.setTheme(el.value as any)
-}
-
-function onLocaleChange(e: Event) {
-  const el = e.target as HTMLSelectElement | null
-  if (!el) return
-  settings.setLocale(el.value as any)
 }
 </script>
 

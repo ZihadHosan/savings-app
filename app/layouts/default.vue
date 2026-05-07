@@ -9,6 +9,23 @@
 
         <nav class="flex items-center gap-2">
           <ClientOnly>
+            <label class="sr-only" for="header-language">{{ t('settings.language') }}</label>
+            <select
+              id="header-language"
+              :value="settings.locale"
+              class="rounded border border-slate-200 bg-white px-2 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+              @change="onLocaleChange"
+            >
+              <option value="en">English</option>
+              <option value="bn">বাংলা</option>
+              <option value="is">Íslenska</option>
+            </select>
+            <template #fallback>
+              <span class="inline-flex h-9 w-24 rounded bg-slate-100 dark:bg-slate-900" aria-hidden="true" />
+            </template>
+          </ClientOnly>
+
+          <ClientOnly>
             <NuxtLink
               v-if="!auth.isAuthenticated"
               to="/login"
@@ -96,9 +113,11 @@
 import { computed, ref } from 'vue'
 import { useI18n } from '~/composables/useI18n'
 import { useAuthStore } from '~/stores/auth'
+import { useSettingsStore } from '~/stores/settings'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const settings = useSettingsStore()
 const route = useRoute()
 
 const menuOpen = ref(false)
@@ -122,6 +141,12 @@ function goProfile() {
 function goSettings() {
   menuOpen.value = false
   navigateTo('/settings')
+}
+
+function onLocaleChange(e: Event) {
+  const el = e.target as HTMLSelectElement | null
+  if (!el) return
+  settings.setLocale(el.value as any)
 }
 
 function handleLogout() {

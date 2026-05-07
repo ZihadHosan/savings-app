@@ -115,7 +115,22 @@ export default defineNuxtPlugin(() => {
   })()
 
   // Keep store in sync with Supabase session changes.
-  supabase.auth.onAuthStateChange(async (event, session) => {
+  //
+  // ⚠️  MUST be a plain (non-async) callback — do NOT await Supabase REST or
+  // auth calls directly here.
+  //
+  // Why: onAuthStateChange fires while auth-js holds an internal Web Lock
+  // (navigator.locks). Any call that flows through fetchWithAuth →
+  // getAccessToken() → supabase.auth.getSession() re-enters _acquireLock().
+  // With lockAcquired=true the re-entrant path queues the request in
+  // pendingInLock *after* the current lock holder finishes — but the lock
+  // holder is waiting for _notifyAllSubscribers → our callback → getSession()
+  // → pendingInLock → lock holder. Circular deadlock; broken only by timeout.
+  //
+  // Fix: return void from the callback so _notifyAllSubscribers resolves
+  // immediately and the Web Lock is released. Schedule all DB work in a
+  // setTimeout(0) macrotask where the lock is guaranteed to be free.
+  supabase.auth.onAuthStateChange((event, session) => {
     if (import.meta.dev) {
       // eslint-disable-next-line no-console
       console.info('[auth.plugin] onAuthStateChange', {
@@ -125,22 +140,25 @@ export default defineNuxtPlugin(() => {
       })
     }
 
-    await auth.setSession(session)
+    // Run all Supabase work after the auth lock is released (next macrotask).
+    setTimeout(async () => {
+      await auth.setSession(session)
 
-    if (
-      (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
-      auth.isAuthenticated
-    ) {
-      try {
-        await sync.autoSyncOnLogin()
-      } catch {
-        // ignore
+      if (
+        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
+        auth.isAuthenticated
+      ) {
+        try {
+          await sync.autoSyncOnLogin()
+        } catch {
+          // ignore
+        }
+        if (auth.user?.id) setupRealtime(auth.user.id)
       }
-      if (auth.user?.id) setupRealtime(auth.user.id)
-    }
 
-    if (event === 'SIGNED_OUT' || !session) {
-      await teardownRealtime()
-    }
+      if (event === 'SIGNED_OUT' || !session) {
+        await teardownRealtime()
+      }
+    }, 0)
   })
 })

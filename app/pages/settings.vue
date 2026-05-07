@@ -1,5 +1,21 @@
 <template>
   <div class="space-y-6">
+    <ClientOnly>
+      <div
+        v-if="!auth.hydrated || auth.status === 'idle' || auth.status === 'loading'"
+        class="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950"
+      >
+        Loading…
+      </div>
+
+      <div
+        v-else-if="!auth.isAuthenticated"
+        class="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950"
+      >
+        {{ t('profile.mustSignIn') }}
+      </div>
+
+      <div v-else class="space-y-6">
     <header class="space-y-2">
       <h1 class="text-2xl font-semibold tracking-tight">{{ t('settings.title') }}</h1>
       <p class="text-slate-600 dark:text-slate-300">
@@ -98,6 +114,14 @@
         <div>{{ supabaseAnonKeyLen }}</div>
       </div>
     </section>
+      </div>
+
+      <template #fallback>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          Loading…
+        </div>
+      </template>
+    </ClientOnly>
   </div>
 </template>
 
@@ -106,12 +130,14 @@ import { computed, watchEffect } from 'vue'
 import { useSettingsStore } from '~/stores/settings'
 import { useChallengeStore } from '~/stores/challenge'
 import { useSyncStore } from '~/stores/sync'
+import { useAuthStore } from '~/stores/auth'
 import type { AppSettings } from '~/types/challenge'
 import { useI18n } from '~/composables/useI18n'
 
 const settings = useSettingsStore()
 const challenge = useChallengeStore()
 const sync = useSyncStore()
+const auth = useAuthStore()
 const { t } = useI18n()
 const route = useRoute()
 
@@ -127,6 +153,15 @@ const supabaseAnonKeyLen = computed(() => String((runtimePublic.value as any)?.s
 // Theme toggles DOM classes — client-only (SSR has no `document`).
 watchEffect(() => {
   if (import.meta.server) return
+  if (!auth.hydrated || auth.status === 'idle' || auth.status === 'loading') return
+  if (!auth.isAuthenticated) {
+    navigateTo({
+      path: '/login',
+      query: { redirect: route.fullPath }
+    })
+    return
+  }
+
   const themeMode = settings.theme
   const root = document.documentElement
   if (themeMode === 'system')

@@ -40,6 +40,13 @@
                 <button
                   type="button"
                   class="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
+                  @click.stop="goSettings"
+                >
+                  {{ t('nav.settings') }}
+                </button>
+                <button
+                  type="button"
+                  class="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900"
                   @click="handleLogout"
                 >
                   {{ t('auth.logout') }}
@@ -51,12 +58,6 @@
               <span class="inline-flex h-9 w-16 rounded bg-slate-100 dark:bg-slate-900" aria-hidden="true" />
             </template>
           </ClientOnly>
-          <NuxtLink
-            to="/settings"
-            class="rounded px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:text-slate-200 dark:hover:bg-slate-900"
-          >
-            {{ t('nav.settings') }}
-          </NuxtLink>
         </nav>
       </div>
     </header>
@@ -116,6 +117,11 @@ const debugVisible = computed(() => route.query.debug === '1')
 function goProfile() {
   menuOpen.value = false
   navigateTo('/profile-setup')
+}
+
+function goSettings() {
+  menuOpen.value = false
+  navigateTo('/settings')
 }
 
 function handleLogout() {

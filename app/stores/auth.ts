@@ -53,7 +53,8 @@ export const useAuthStore = defineStore('auth', {
 
       // Bound the profile fetch — if Supabase ever hangs (network, RLS misconfig,
       // realtime stalling) we don't want auth to be stuck in `loading` forever.
-      const PROFILE_FETCH_TIMEOUT_MS = 5000
+      // 15s is generous enough for slow connections without freezing the UI.
+      const PROFILE_FETCH_TIMEOUT_MS = 15000
       const userId = this.user.id
 
       try {

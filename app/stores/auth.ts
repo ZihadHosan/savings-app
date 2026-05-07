@@ -38,29 +38,48 @@ export const useAuthStore = defineStore('auth', {
         return
       }
 
+      // We know the user — settle auth state IMMEDIATELY so the UI / router
+      // middleware / profile-guard plugin stop waiting. The profile fetch
+      // runs after, and updates `profile` when it resolves; `needsProfileSetup`
+      // re-evaluates reactively.
+      this.status = 'authenticated'
+      this.hydrated = true
+
       const supabase = useNuxtApp().$supabase
       if (!supabase) {
         this.profile = null
-        this.status = 'authenticated'
-        this.hydrated = true
         return
       }
 
+      // Bound the profile fetch — if Supabase ever hangs (network, RLS misconfig,
+      // realtime stalling) we don't want auth to be stuck in `loading` forever.
+      const PROFILE_FETCH_TIMEOUT_MS = 5000
+      const userId = this.user.id
+
       try {
-        const { data: profileRow, error: profileError } = await supabase
+        const fetchProfile = supabase
           .from('profiles')
           .select('id,name,username,birthday,gender,phone,address')
-          .eq('id', this.user.id)
+          .eq('id', userId)
           .maybeSingle()
 
+        const result = (await Promise.race([
+          fetchProfile,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('profile fetch timed out')),
+              PROFILE_FETCH_TIMEOUT_MS
+            )
+          )
+        ])) as { data: any; error: any }
+
+        const { data: profileRow, error: profileError } = result
+
         if (import.meta.dev) {
-          // Visible diagnostic: shows up in browser DevTools so we can see
-          // what's coming back from the profiles SELECT after a refresh.
-          // Remove once cross-device profile sync is fully verified.
           // eslint-disable-next-line no-console
           console.info('[auth.setSession] profile fetch', {
-            userId: this.user.id,
-            email: this.user.email,
+            userId,
+            email: this.user?.email,
             profileError: profileError?.message,
             profileRow
           })
@@ -75,14 +94,11 @@ export const useAuthStore = defineStore('auth', {
       } catch (e: any) {
         if (import.meta.dev) {
           // eslint-disable-next-line no-console
-          console.warn('[auth.setSession] profile fetch threw', e)
+          console.warn('[auth.setSession] profile fetch failed', e?.message || e)
         }
         this.profile = null
         this.lastError = e?.message || 'Profile fetch failed'
       }
-
-      this.status = 'authenticated'
-      this.hydrated = true
     },
 
     async refresh() {

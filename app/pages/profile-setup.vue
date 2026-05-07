@@ -228,21 +228,47 @@ async function save() {
       console.info('[profile-setup] upserting payload', payload)
     }
 
-    // Upsert (insert or update) the profile row.
-    const { error: upsertError } = await supabase.value
-      .from('profiles')
-      .upsert(payload, { onConflict: 'id' })
+    // Time-bound the network calls so the Save button can never hang forever.
+    // If Supabase is unreachable / slow we surface a real error rather than
+    // an infinite "Saving…" state.
+    const SUPABASE_CALL_TIMEOUT_MS = 10000
+    function withTimeout<T>(p: PromiseLike<T>, label: string): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        const t = setTimeout(
+          () => reject(new Error(`${label} timed out after ${SUPABASE_CALL_TIMEOUT_MS}ms — Supabase unreachable?`)),
+          SUPABASE_CALL_TIMEOUT_MS
+        )
+        Promise.resolve(p).then(
+          (v) => {
+            clearTimeout(t)
+            resolve(v)
+          },
+          (e) => {
+            clearTimeout(t)
+            reject(e)
+          }
+        )
+      })
+    }
+
+    const { error: upsertError } = await withTimeout(
+      supabase.value.from('profiles').upsert(payload, { onConflict: 'id' }),
+      'profile upsert'
+    )
     if (upsertError) throw upsertError
 
     // Verification read-back. If the row's name doesn't match what we just
     // wrote, the most likely cause is a missing RLS UPDATE policy on the
     // `profiles` table — Supabase silently does 0 rows-affected and returns
     // no error. Detect that and surface a clear, fixable message.
-    const { data: row, error: fetchError } = await supabase.value
-      .from('profiles')
-      .select('id,name,username,birthday,gender,phone,address')
-      .eq('id', auth.user.id)
-      .maybeSingle()
+    const { data: row, error: fetchError } = await withTimeout(
+      supabase.value
+        .from('profiles')
+        .select('id,name,username,birthday,gender,phone,address')
+        .eq('id', auth.user.id)
+        .maybeSingle(),
+      'profile read-back'
+    )
     if (fetchError) throw fetchError
 
     if (import.meta.dev) {

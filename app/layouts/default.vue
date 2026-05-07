@@ -87,9 +87,11 @@ function goProfile() {
   navigateTo('/profile-setup')
 }
 
-async function handleLogout() {
+function handleLogout() {
   menuOpen.value = false
-  await auth.signOut()
+  // signOut clears local state synchronously; remote sign-out runs in the
+  // background so the UI updates instantly without a refresh.
+  auth.signOut()
   navigateTo('/login')
 }
 </script>

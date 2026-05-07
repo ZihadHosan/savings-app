@@ -172,13 +172,42 @@ async function save() {
       phone: phone.value.trim() ? phone.value.trim() : null,
       address: address.value.trim() ? address.value.trim() : null
     }
-    const { data, error: upsertError } = await supabase.value
+
+    // Upsert and tolerate the case where the post-upsert SELECT briefly
+    // returns no rows (PGRST116) — we'll fall back to a separate fetch.
+    const { data: upsertData, error: upsertError } = await supabase.value
       .from('profiles')
       .upsert(payload, { onConflict: 'id' })
       .select('id,name,username,birthday,gender,phone,address')
-      .single()
+      .maybeSingle()
     if (upsertError) throw upsertError
-    auth.profile = (data as any) || null
+
+    let row: any = upsertData
+    if (!row) {
+      // Fallback: explicitly read it back. This is also a sanity check that
+      // the row really did get written (RLS on SELECT will silently return
+      // null otherwise, which is the bug we want to surface).
+      const { data: fetched, error: fetchError } = await supabase.value
+        .from('profiles')
+        .select('id,name,username,birthday,gender,phone,address')
+        .eq('id', auth.user.id)
+        .maybeSingle()
+      if (fetchError) throw fetchError
+      row = fetched
+    }
+    if (!row) {
+      throw new Error(
+        'Profile save returned no row. Check Supabase RLS policies for the profiles table (select/update/insert own).'
+      )
+    }
+
+    // Update the in-memory profile so the header/forms reflect it instantly.
+    auth.profile = row
+
+    // And re-pull the full session/profile from auth to make sure everything
+    // (including downstream subscribers) is consistent.
+    await auth.refresh()
+
     notice.value = t('profile.saved')
   } catch (e: any) {
     error.value = e?.message || 'Profile save failed'

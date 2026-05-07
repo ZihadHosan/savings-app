@@ -139,8 +139,8 @@ async function push() {
 }
 async function pull() {
   await sync.pullFromCloud()
-  // refresh the app to re-hydrate stores from localStorage
-  window.location.reload()
+  // Pinia stores are now re-hydrated automatically by sync.pullFromCloud(),
+  // no page reload required.
 }
 function reset() {
   if (!confirm(t('settings.resetConfirm'))) return

@@ -1,6 +1,25 @@
 import { defineStore } from 'pinia'
 import type { PersistedStateV1 } from '~/types/challenge'
 import { loadPersistedState, savePersistedState } from '~/utils/storage'
+import { useChallengeStore } from '~/stores/challenge'
+import { useSettingsStore } from '~/stores/settings'
+
+/**
+ * Re-hydrate Pinia stores from whatever is currently in localStorage.
+ * Call this after pulling fresh state from the cloud so the running app
+ * (dashboard, etc.) updates immediately without a page reload.
+ */
+function rehydrateStoresFromLocalStorage() {
+  if (import.meta.server) return
+  const persisted = loadPersistedState()
+  if (!persisted) return
+  try {
+    useSettingsStore().initFromPersisted(persisted)
+    useChallengeStore().initFromPersisted(persisted)
+  } catch {
+    // ignore — stores may not be ready in some edge contexts
+  }
+}
 
 /**
  * Optional cloud sync. If Supabase isn't configured, these actions become no-ops.
@@ -109,6 +128,10 @@ export const useSyncStore = defineStore('sync', {
         const refreshed = loadPersistedState()
         if (refreshed) savePersistedState(refreshed)
 
+        // Push the freshly-pulled state into the live Pinia stores so the
+        // dashboard reflects it without a page reload.
+        rehydrateStoresFromLocalStorage()
+
         this.lastSyncedAtISO = String(data.updated_at || new Date().toISOString())
         this.status = 'idle'
       } catch (e: any) {
@@ -162,6 +185,11 @@ export const useSyncStore = defineStore('sync', {
         localStorage.setItem('savings_challenge_state', JSON.stringify(data.state_json))
         const refreshed = loadPersistedState()
         if (refreshed) savePersistedState(refreshed)
+
+        // Push the freshly-pulled state into the live Pinia stores so the
+        // dashboard reflects it without a page reload.
+        rehydrateStoresFromLocalStorage()
+
         this.lastSyncedAtISO = String(data.updated_at || new Date().toISOString())
         this.status = 'idle'
       } catch (e: any) {

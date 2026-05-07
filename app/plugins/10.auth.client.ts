@@ -1,5 +1,6 @@
 import { useAuthStore } from '~/stores/auth'
 import { useSyncStore } from '~/stores/sync'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 export default defineNuxtPlugin(() => {
   const supabase = useNuxtApp().$supabase
@@ -7,6 +8,79 @@ export default defineNuxtPlugin(() => {
   const sync = useSyncStore()
 
   if (!supabase) return
+
+  // Realtime subscription handles for the current user. Recreated on user
+  // change; cleaned up on sign-out.
+  let stateChannel: RealtimeChannel | null = null
+  let profileChannel: RealtimeChannel | null = null
+  let subscribedForUserId: string | null = null
+
+  async function teardownRealtime() {
+    try {
+      if (stateChannel) await supabase!.removeChannel(stateChannel)
+    } catch {
+      // ignore
+    }
+    try {
+      if (profileChannel) await supabase!.removeChannel(profileChannel)
+    } catch {
+      // ignore
+    }
+    stateChannel = null
+    profileChannel = null
+    subscribedForUserId = null
+  }
+
+  function setupRealtime(userId: string) {
+    if (subscribedForUserId === userId) return
+    teardownRealtime()
+    subscribedForUserId = userId
+
+    // Cross-device dashboard sync: listen for user_states changes belonging to
+    // this user, then pull + re-hydrate the Pinia stores.
+    stateChannel = supabase!
+      .channel(`user_states:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_states',
+          filter: `user_id=eq.${userId}`
+        },
+        async () => {
+          // Don't push back what we're about to pull.
+          sync.suppressAutoPush(3000)
+          try {
+            await sync.pullFromCloud()
+          } catch {
+            // store captures error
+          }
+        }
+      )
+      .subscribe()
+
+    // Live profile updates (e.g. name change on another device).
+    profileChannel = supabase!
+      .channel(`profiles:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`
+        },
+        async () => {
+          try {
+            await auth.refresh()
+          } catch {
+            // ignore
+          }
+        }
+      )
+      .subscribe()
+  }
 
   function clearStoredAuthTokens() {
     try {
@@ -112,6 +186,11 @@ export default defineNuxtPlugin(() => {
 
     if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && auth.isAuthenticated) {
       await sync.autoSyncOnLogin()
+      if (auth.user?.id) setupRealtime(auth.user.id)
+    }
+
+    if (event === 'SIGNED_OUT' || !session) {
+      await teardownRealtime()
     }
   })
 })

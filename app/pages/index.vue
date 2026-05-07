@@ -1,8 +1,31 @@
 <template>
   <div class="space-y-6">
     <ClientOnly>
+      <!-- If signed in but profile name is missing, show a CTA to complete the
+           profile (the layout-level guard will also navigate them, but this
+           keeps the page safe even if the guard hasn't fired yet). -->
       <div
-        v-if="!isAuthed || !challengeStore.isConfigured"
+        v-if="isAuthed && needsProfile"
+        class="rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/30"
+      >
+        <h1 class="text-2xl font-semibold tracking-tight text-amber-900 dark:text-amber-100">
+          {{ t('profile.title') }}
+        </h1>
+        <p class="mt-2 text-amber-900/80 dark:text-amber-100/80">
+          {{ t('profile.subtitle') }}
+        </p>
+        <div class="mt-4">
+          <NuxtLink
+            to="/profile-setup"
+            class="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            {{ t('profile.save') }}
+          </NuxtLink>
+        </div>
+      </div>
+
+      <div
+        v-else-if="!isAuthed || !challengeStore.isConfigured"
         class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950"
       >
         <h1 class="text-2xl font-semibold tracking-tight">{{ t('dashboard.welcomeTitle') }}</h1>
@@ -99,6 +122,9 @@ const auth = useAuthStore()
 const { t } = useI18n()
 
 const isAuthed = computed(() => auth.isAuthenticated)
+// Only flag "needs profile" once auth has actually hydrated, so we don't
+// flash the amber CTA on initial paint before the profile is loaded.
+const needsProfile = computed(() => auth.hydrated && auth.needsProfileSetup)
 
 const currency = computed(() => challengeStore.challenge?.currency || 'USD')
 const locale = computed(() => settingsStore.locale)

@@ -173,39 +173,39 @@ async function save() {
       address: address.value.trim() ? address.value.trim() : null
     }
 
-    // Upsert and tolerate the case where the post-upsert SELECT briefly
-    // returns no rows (PGRST116) — we'll fall back to a separate fetch.
-    const { data: upsertData, error: upsertError } = await supabase.value
+    // Upsert (insert or update) the profile row.
+    const { error: upsertError } = await supabase.value
       .from('profiles')
       .upsert(payload, { onConflict: 'id' })
-      .select('id,name,username,birthday,gender,phone,address')
-      .maybeSingle()
     if (upsertError) throw upsertError
 
-    let row: any = upsertData
-    if (!row) {
-      // Fallback: explicitly read it back. This is also a sanity check that
-      // the row really did get written (RLS on SELECT will silently return
-      // null otherwise, which is the bug we want to surface).
-      const { data: fetched, error: fetchError } = await supabase.value
-        .from('profiles')
-        .select('id,name,username,birthday,gender,phone,address')
-        .eq('id', auth.user.id)
-        .maybeSingle()
-      if (fetchError) throw fetchError
-      row = fetched
-    }
+    // Verification read-back. If the row's name doesn't match what we just
+    // wrote, the most likely cause is a missing RLS UPDATE policy on the
+    // `profiles` table — Supabase silently does 0 rows-affected and returns
+    // no error. Detect that and surface a clear, fixable message.
+    const { data: row, error: fetchError } = await supabase.value
+      .from('profiles')
+      .select('id,name,username,birthday,gender,phone,address')
+      .eq('id', auth.user.id)
+      .maybeSingle()
+    if (fetchError) throw fetchError
+
     if (!row) {
       throw new Error(
-        'Profile save returned no row. Check Supabase RLS policies for the profiles table (select/update/insert own).'
+        'Profile row could not be read after save. Check the SELECT RLS policy on public.profiles.'
+      )
+    }
+    if ((row as any).name !== payload.name) {
+      throw new Error(
+        'Profile saved silently failed (name not persisted). This is almost certainly a missing RLS UPDATE policy on public.profiles. Run the SQL in the Supabase dashboard: ' +
+          'create policy "profiles: update own" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);'
       )
     }
 
     // Update the in-memory profile so the header/forms reflect it instantly.
-    auth.profile = row
+    auth.profile = row as any
 
-    // And re-pull the full session/profile from auth to make sure everything
-    // (including downstream subscribers) is consistent.
+    // Re-pull the full session/profile so everything downstream is consistent.
     await auth.refresh()
 
     notice.value = t('profile.saved')

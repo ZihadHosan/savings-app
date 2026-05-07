@@ -39,9 +39,11 @@ export default defineNuxtPlugin(() => {
     subscribedForUserId = null
   }
 
-  function setupRealtime(userId: string) {
+  async function setupRealtime(userId: string) {
     if (subscribedForUserId === userId) return
-    teardownRealtime()
+    // Await teardown so we don't accumulate ghost subscriptions when the user
+    // id changes (rare in practice, but happens during account-switch tests).
+    await teardownRealtime()
     subscribedForUserId = userId
 
     stateChannel = supabase!
@@ -88,32 +90,12 @@ export default defineNuxtPlugin(() => {
 
   // ---- Initial hydration --------------------------------------------------
   //
-  // Supabase auth-js loads the session from localStorage on its first
-  // getSession() call. We just call it and pass the result through.
-  // No manual-logout flag, no token surgery — those caused auto-logout on
-  // refresh because the flag wasn't reliably cleared after a fresh login.
-  ;(async () => {
-    try {
-      const { data, error } = await supabase.auth.getSession()
-      if (import.meta.dev) {
-        // eslint-disable-next-line no-console
-        console.info('[auth.plugin] initial getSession', {
-          hasSession: !!data?.session,
-          userId: data?.session?.user?.id,
-          email: data?.session?.user?.email,
-          error: error?.message
-        })
-      }
-      await auth.setSession(data?.session ?? null)
-    } catch (e: any) {
-      if (import.meta.dev) {
-        // eslint-disable-next-line no-console
-        console.warn('[auth.plugin] initial getSession threw', e)
-      }
-      await auth.setSession(null)
-    }
-  })()
-
+  // We rely on Supabase's INITIAL_SESSION event (fired exactly once after
+  // _initialize, with the session recovered from localStorage) instead of an
+  // explicit getSession() IIFE. That avoids two parallel setSession calls
+  // during page load (the old IIFE + the INITIAL_SESSION event handler both
+  // ran the same SELECT, doubling the profile-fetch cost).
+  //
   // Keep store in sync with Supabase session changes.
   //
   // ⚠️  MUST be a plain (non-async) callback — do NOT await Supabase REST or
@@ -144,16 +126,26 @@ export default defineNuxtPlugin(() => {
     setTimeout(async () => {
       await auth.setSession(session)
 
-      if (
-        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
-        auth.isAuthenticated
-      ) {
+      // Pull-from-cloud only on actual sign-in events and the initial page
+      // hydration. We deliberately do NOT run autoSyncOnLogin on
+      // TOKEN_REFRESHED — that fires hourly and would re-pull the entire
+      // user state from Supabase on every token refresh for no benefit.
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && auth.isAuthenticated) {
         try {
           await sync.autoSyncOnLogin()
         } catch {
           // ignore
         }
-        if (auth.user?.id) setupRealtime(auth.user.id)
+      }
+
+      // Realtime subscription should follow the *current* user across
+      // SIGNED_IN, TOKEN_REFRESHED, and INITIAL_SESSION; setupRealtime
+      // is a no-op when subscribedForUserId already matches.
+      if (
+        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') &&
+        auth.user?.id
+      ) {
+        await setupRealtime(auth.user.id)
       }
 
       if (event === 'SIGNED_OUT' || !session) {

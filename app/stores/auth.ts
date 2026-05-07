@@ -11,6 +11,16 @@ export type UserProfile = {
   address: string | null
 }
 
+// Module-scoped in-flight tracker for the profile SELECT. Prevents the
+// "triple concurrent setSession" race that happened when:
+//   1. INITIAL_SESSION fires → setSession (fetching profile)
+//   2. /profile-setup mounts → onMounted calls auth.refresh → setSession
+//   3. Realtime profiles channel fires after subscribe → auth.refresh → setSession
+// Without dedup, the slowest fetch could overwrite a successful one and clobber
+// `profile` back to null.
+let inflightProfileFetch: Promise<UserProfile | null> | null = null
+let inflightForUserId: string | null = null
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as User | null,
@@ -57,41 +67,63 @@ export const useAuthStore = defineStore('auth', {
       const PROFILE_FETCH_TIMEOUT_MS = 15000
       const userId = this.user.id
 
-      try {
-        const fetchProfile = supabase
-          .from('profiles')
-          .select('id,name,username,birthday,gender,phone,address')
-          .eq('id', userId)
-          .maybeSingle()
-
-        const result = (await Promise.race([
-          fetchProfile,
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error('profile fetch timed out')),
-              PROFILE_FETCH_TIMEOUT_MS
-            )
-          )
-        ])) as { data: any; error: any }
-
-        const { data: profileRow, error: profileError } = result
-
-        if (import.meta.dev) {
-          // eslint-disable-next-line no-console
-          console.info('[auth.setSession] profile fetch', {
-            userId,
-            email: this.user?.email,
-            profileError: profileError?.message,
-            profileRow
-          })
-        }
-
-        if (profileError) {
+      // Dedup: if a fetch for the same user is already in flight, await it
+      // and reuse its result. Prevents 2-3 parallel SELECTs racing each
+      // other (the slowest could overwrite a fresher result with null).
+      if (inflightProfileFetch && inflightForUserId === userId) {
+        try {
+          const reusedRow = await inflightProfileFetch
+          this.profile = reusedRow
+        } catch (e: any) {
           this.profile = null
-          this.lastError = profileError.message
-        } else {
-          this.profile = (profileRow as any) || null
+          this.lastError = e?.message || 'Profile fetch failed'
         }
+        return
+      }
+
+      inflightForUserId = userId
+      inflightProfileFetch = (async (): Promise<UserProfile | null> => {
+        try {
+          const fetchProfile = supabase
+            .from('profiles')
+            .select('id,name,username,birthday,gender,phone,address')
+            .eq('id', userId)
+            .maybeSingle()
+
+          const result = (await Promise.race([
+            fetchProfile,
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error('profile fetch timed out')),
+                PROFILE_FETCH_TIMEOUT_MS
+              )
+            )
+          ])) as { data: any; error: any }
+
+          const { data: profileRow, error: profileError } = result
+
+          if (import.meta.dev) {
+            // eslint-disable-next-line no-console
+            console.info('[auth.setSession] profile fetch', {
+              userId,
+              profileError: profileError?.message,
+              profileRow
+            })
+          }
+
+          if (profileError) {
+            throw new Error(profileError.message)
+          }
+          return (profileRow as UserProfile | null) ?? null
+        } finally {
+          // Allow the next caller to start a fresh fetch.
+          // Cleared on completion regardless of success/failure.
+        }
+      })()
+
+      try {
+        const row = await inflightProfileFetch
+        this.profile = row
       } catch (e: any) {
         if (import.meta.dev) {
           // eslint-disable-next-line no-console
@@ -99,6 +131,9 @@ export const useAuthStore = defineStore('auth', {
         }
         this.profile = null
         this.lastError = e?.message || 'Profile fetch failed'
+      } finally {
+        inflightProfileFetch = null
+        inflightForUserId = null
       }
     },
 

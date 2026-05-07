@@ -61,6 +61,7 @@ export type MessageKey =
   | "chart.placeholder"
   | "dashboard.welcomeTitle"
   | "dashboard.welcomeBody"
+  | "dashboard.signInPrompt"
   | "dashboard.startSetup"
   | "dashboard.title"
   | "dashboard.subtitle"
@@ -189,6 +190,8 @@ export const messages: Record<Locale, Messages> = {
     "dashboard.welcomeTitle": "Welcome",
     "dashboard.welcomeBody":
       "Set up your savings challenge to see your dashboard and start tracking weekly progress.",
+    "dashboard.signInPrompt":
+      "Sign in to view your dashboard and pick up where you left off. New here? Try a setup preview first.",
     "dashboard.startSetup": "Start setup",
     "dashboard.title": "Dashboard",
     "dashboard.subtitle":
@@ -327,6 +330,8 @@ export const messages: Record<Locale, Messages> = {
     "dashboard.welcomeTitle": "স্বাগতম",
     "dashboard.welcomeBody":
       "ড্যাশবোর্ড দেখতে এবং সাপ্তাহিক ট্র্যাকিং শুরু করতে চ্যালেঞ্জ সেটআপ করুন।",
+    "dashboard.signInPrompt":
+      "ড্যাশবোর্ড দেখতে এবং আগের জায়গা থেকে চালিয়ে যেতে লগ ইন করুন। নতুন? আগে সেটআপ প্রিভিউ দেখে নিন।",
     "dashboard.startSetup": "সেটআপ শুরু করুন",
     "dashboard.title": "ড্যাশবোর্ড",
     "dashboard.subtitle":
@@ -464,6 +469,8 @@ export const messages: Record<Locale, Messages> = {
     "dashboard.welcomeTitle": "Velkomin(n)",
     "dashboard.welcomeBody":
       "Settu upp sparnaðaráskorunina til að sjá stjórnborðið og byrja að fylgjast með vikulegri framvindu.",
+    "dashboard.signInPrompt":
+      "Skráðu þig inn til að sjá stjórnborðið þitt og halda áfram þar sem frá var horfið. Nýr hér? Prófaðu uppsetningarforskoðun fyrst.",
     "dashboard.startSetup": "Byrja uppsetningu",
     "dashboard.title": "Stjórnborð",
     "dashboard.subtitle": "Haltu seríunni á lífi. Ótengt fyrst; breytingar vistast sjálfkrafa.",

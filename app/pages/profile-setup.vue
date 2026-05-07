@@ -15,6 +15,20 @@
       </div>
 
       <section v-else class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div
+          v-if="notice"
+          class="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
+          role="status"
+        >
+          {{ notice }}
+        </div>
+        <div
+          v-if="error"
+          class="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-200"
+          role="alert"
+        >
+          {{ error }}
+        </div>
         <form class="space-y-4" @submit.prevent="save">
         <label class="grid gap-1">
           <span class="text-sm font-medium">
@@ -90,14 +104,12 @@
             :disabled="loading || !canSave"
             :title="!canSave ? t('profile.nameRequired') : ''"
           >
-            {{ t('profile.save') }}
+            {{ loading ? 'Saving…' : t('profile.save') }}
           </button>
 
-          <p v-if="!canSave && !error" class="text-xs text-slate-500 dark:text-slate-400">
+          <p v-if="!canSave" class="text-xs text-slate-500 dark:text-slate-400">
             {{ t('profile.nameRequired') }}
           </p>
-          <p v-if="error" class="text-sm text-rose-600 dark:text-rose-400" role="alert">{{ error }}</p>
-          <p v-if="notice" class="text-sm text-emerald-700 dark:text-emerald-300" role="status">{{ notice }}</p>
         </div>
         </form>
       </section>
@@ -130,6 +142,10 @@ const address = ref('')
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
+
+// Suppress the redirect-watcher right after save, so the success notice
+// stays visible long enough for the user to read it.
+const justSaved = ref(false)
 
 const canSave = computed(() => !!name.value.trim())
 
@@ -169,6 +185,9 @@ onMounted(async () => {
 })
 
 watchEffect(() => {
+  // Skip the auto-redirect during/after a save so the success notice is visible.
+  if (justSaved.value) return
+  if (loading.value) return
   // Only auto-redirect if we were forced here by middleware (redirect query present).
   if (!auth.isAuthenticated) return
   if (auth.needsProfileSetup) return
@@ -179,9 +198,18 @@ watchEffect(() => {
 async function save() {
   error.value = ''
   notice.value = ''
-  if (!supabase.value) return
-  if (!auth.user) return
-  if (!name.value.trim()) return
+  if (!supabase.value) {
+    error.value = 'Supabase is not configured.'
+    return
+  }
+  if (!auth.user) {
+    error.value = 'You must be signed in.'
+    return
+  }
+  if (!name.value.trim()) {
+    error.value = t('profile.nameRequired')
+    return
+  }
 
   loading.value = true
   try {
@@ -193,6 +221,11 @@ async function save() {
       gender: gender.value || null,
       phone: phone.value.trim() ? phone.value.trim() : null,
       address: address.value.trim() ? address.value.trim() : null
+    }
+
+    if (import.meta.dev) {
+      // eslint-disable-next-line no-console
+      console.info('[profile-setup] upserting payload', payload)
     }
 
     // Upsert (insert or update) the profile row.
@@ -212,6 +245,11 @@ async function save() {
       .maybeSingle()
     if (fetchError) throw fetchError
 
+    if (import.meta.dev) {
+      // eslint-disable-next-line no-console
+      console.info('[profile-setup] verified row', row)
+    }
+
     if (!row) {
       throw new Error(
         'Profile row could not be read after save. Check the SELECT RLS policy on public.profiles.'
@@ -219,7 +257,7 @@ async function save() {
     }
     if ((row as any).name !== payload.name) {
       throw new Error(
-        'Profile saved silently failed (name not persisted). This is almost certainly a missing RLS UPDATE policy on public.profiles. Run the SQL in the Supabase dashboard: ' +
+        'Profile save silently failed (name not persisted). This is almost certainly a missing RLS UPDATE policy on public.profiles. Run this SQL in the Supabase SQL editor: ' +
           'create policy "profiles: update own" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);'
       )
     }
@@ -238,11 +276,28 @@ async function save() {
     // didn't change the object reference (Vue would skip the watchEffect).
     syncFormFromCloud()
 
+    // Show the confirmation, suppress the auto-redirect watcher, and only
+    // navigate after the user has had a moment to read it.
+    justSaved.value = true
     notice.value = t('profile.saved')
+    loading.value = false
+
+    setTimeout(() => {
+      const redirect =
+        typeof route.query.redirect === 'string' && route.query.redirect
+          ? route.query.redirect
+          : '/'
+      navigateTo(redirect, { replace: true })
+    }, 1500)
+    return
   } catch (e: any) {
     error.value = e?.message || 'Profile save failed'
+    if (import.meta.dev) {
+      // eslint-disable-next-line no-console
+      console.error('[profile-setup] save failed', e)
+    }
   } finally {
-    loading.value = false
+    if (!justSaved.value) loading.value = false
   }
 }
 </script>

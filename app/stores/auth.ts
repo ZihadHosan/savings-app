@@ -31,15 +31,6 @@ export const useAuthStore = defineStore('auth', {
       this.user = session?.user ?? null
       this.lastError = ''
 
-      // If we successfully hydrated a session, clear any manual-logout marker.
-      if (!import.meta.server && this.user) {
-        try {
-          localStorage.removeItem('auth_manual_logout')
-        } catch {
-          // ignore
-        }
-      }
-
       if (!this.user) {
         this.profile = null
         this.status = 'anonymous'
@@ -122,32 +113,19 @@ export const useAuthStore = defineStore('auth', {
       const supabase = useNuxtApp().$supabase
       this.lastError = ''
 
-      // Optimistic, synchronous logout: clear UI state and local tokens FIRST
-      // so the app reacts instantly. The remote sign-out runs in the background.
+      // Optimistic, synchronous logout: clear UI state first so the header
+      // reacts instantly without a refresh.
       this.user = null
       this.profile = null
       this.status = 'anonymous'
       this.hydrated = true
 
-      if (!import.meta.server) {
-        try {
-          localStorage.setItem('auth_manual_logout', '1')
-        } catch {
-          // ignore
-        }
-        try {
-          for (const k of Object.keys(localStorage)) {
-            if (k.startsWith('sb-') && k.endsWith('-auth-token')) localStorage.removeItem(k)
-          }
-        } catch {
-          // ignore
-        }
-      }
-
       if (!supabase) return
 
-      // Fire-and-forget remote sign-out. We don't await to keep the UI snappy;
-      // any failure is fine because local tokens are already cleared.
+      // Fire-and-forget remote sign-out. We let supabase auth-js manage its
+      // own localStorage tokens — no manual surgery, which caused auto-logout
+      // on refresh because the manual_logout flag wasn't reliably cleared
+      // after a fresh login.
       void (async () => {
         try {
           await supabase.auth.signOut({ scope: 'global' })
